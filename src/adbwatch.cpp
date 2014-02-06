@@ -12,6 +12,7 @@
 bool must_exit = false;
 bool IsAdbHung();
 void KillAdb();
+void SetAdbAffinity();
 
 BOOL CtrlHandler(DWORD fdwCtrlType) {
   printf("Exiting...\n");
@@ -21,13 +22,15 @@ BOOL CtrlHandler(DWORD fdwCtrlType) {
 
 int _tmain(int argc, _TCHAR* argv[]) {
   SetConsoleCtrlHandler((PHANDLER_ROUTINE)CtrlHandler, TRUE);
-  printf("Monitoring adb for hangs...");
+  printf("Monitoring adb for hangs...\n");
+  SetAdbAffinity();
   while (!must_exit) {
     for (int seconds = 0; seconds < 60 && !must_exit; seconds++)
       Sleep(1000);
     if (IsAdbHung()) {
       KillAdb();
       IsAdbHung();
+      SetAdbAffinity();
     }
   }
 	return 0;
@@ -127,6 +130,26 @@ void KillAdb() {
                                               proc[i].ProcessId);
         if (process_handle) {
           TerminateProcess(process_handle, 0);
+          CloseHandle(process_handle);
+        }
+      }
+    }
+    if (proc)
+      WTSFreeMemory(proc);
+  }
+}
+
+void SetAdbAffinity() {
+  WTS_PROCESS_INFO * proc = NULL;
+  DWORD count = 0;
+  if (WTSEnumerateProcesses(WTS_CURRENT_SERVER_HANDLE, 0, 1, &proc ,&count)) {
+    for (DWORD i = 0; i < count; i++) {
+      TCHAR * process = PathFindFileName(proc[i].pProcessName);
+      if (!lstrcmpi(process, _T("adb.exe"))) {
+        HANDLE process_handle = OpenProcess(PROCESS_SET_INFORMATION, FALSE, 
+                                              proc[i].ProcessId);
+        if (process_handle) {
+          SetProcessAffinityMask(process_handle, 1);
           CloseHandle(process_handle);
         }
       }
