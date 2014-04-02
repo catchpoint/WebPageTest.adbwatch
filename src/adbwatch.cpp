@@ -31,14 +31,13 @@ void LoadSettings() {
   lstrcpy(PathFindExtension(ini_file), L".ini");
   if (GetPrivateProfileSection(L"Launch", launch_section,
       sizeof(launch_section) / sizeof(launch_section[0]), ini_file)) {
-    wchar_t * next_token = NULL;
-    wchar_t * line = wcstok_s(launch_section, L"\r\n", &next_token);
-    while (line) {
+    wchar_t * line = launch_section;
+    while (line && lstrlen(line)) {
       CString trimmed(line);
       trimmed.Trim();
       if (trimmed.GetLength())
         launch_processes.Add(line);
-      line = wcstok_s(NULL, L"\r\n", &next_token);
+      line += lstrlen(line) + 1;
     }
   }
   startup_delay = GetPrivateProfileInt(L"General", L"Startup Delay",
