@@ -8,11 +8,15 @@
 #include <Windows.h>
 #include <Wtsapi32.h>
 #include <atlstr.h>
+#include <atlcoll.h>
+#include <Shlwapi.h>
 
+int startup_delay = 60;
 bool must_exit = false;
 bool IsAdbHung();
 void KillAdb();
 void SetAdbAffinity();
+CAtlArray<CString>  launch_processes; 
 
 BOOL CtrlHandler(DWORD fdwCtrlType) {
   printf("Exiting...\n");
@@ -20,8 +24,92 @@ BOOL CtrlHandler(DWORD fdwCtrlType) {
   return TRUE;
 }
 
+void LoadSettings() {
+  wchar_t launch_section[32767];
+  wchar_t ini_file[MAX_PATH];
+  GetModuleFileName(NULL, ini_file, MAX_PATH);
+  lstrcpy(PathFindExtension(ini_file), L".ini");
+  if (GetPrivateProfileSection(L"Launch", launch_section,
+      sizeof(launch_section) / sizeof(launch_section[0]), ini_file)) {
+    wchar_t * next_token = NULL;
+    wchar_t * line = wcstok_s(launch_section, L"\r\n", &next_token);
+    while (line) {
+      CString trimmed(line);
+      trimmed.Trim();
+      if (trimmed.GetLength())
+        launch_processes.Add(line);
+      line = wcstok_s(NULL, L"\r\n", &next_token);
+    }
+  }
+  startup_delay = GetPrivateProfileInt(L"General", L"Startup Delay",
+                                       startup_delay, ini_file);
+}
+
+void LaunchAndWait(LPWSTR command_line, LPWSTR label) {
+  PROCESS_INFORMATION pi;
+  STARTUPINFO si;
+  memset(&si, 0, sizeof(si));
+  memset(&pi, 0, sizeof(pi));
+  si.cb = sizeof(si);
+  if (label && lstrlen(label))
+    si.lpTitle = label;
+
+  if (CreateProcess(NULL, command_line, NULL, NULL, FALSE, CREATE_NEW_CONSOLE,
+                    NULL, NULL, &si, &pi)) {
+    if (pi.hThread)
+      CloseHandle(pi.hThread);
+    if (pi.hProcess) {
+      WaitForSingleObject(pi.hProcess, INFINITE);
+      CloseHandle(pi.hProcess);
+    }
+  }
+}
+
+DWORD WINAPI LaunchProcess(LPVOID param) {
+  int index = (int)param;
+  wchar_t label[100];
+  memset(label, 0, sizeof(label));
+  CString cmd;
+  if (index >= 0 && index < (int)launch_processes.GetCount()) {
+    cmd = launch_processes.GetAt(index);
+    int separator = cmd.Find(L"=");
+    if (separator > -1) {
+      lstrcpy(label, (LPCWSTR)cmd.Left(separator).Trim());
+      cmd = cmd.Mid(separator + 1).Trim();
+    }
+  }
+  if (cmd.GetLength()) {
+    wchar_t command_line[10000];
+    lstrcpy(command_line, (LPCWSTR)cmd);
+    while (!must_exit) {
+      LaunchAndWait(command_line, label);
+      if (!must_exit) {
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        wprintf(L"%d/%d/%d %d:%02d:%02d - %s exited, restarting...\n",
+            t.wMonth, t.wDay, t.wYear, t.wHour, t.wMinute, t.wSecond, label);
+      }
+    }
+  }
+  return 0;
+}
+
 int _tmain(int argc, _TCHAR* argv[]) {
   SetConsoleCtrlHandler((PHANDLER_ROUTINE)CtrlHandler, TRUE);
+  LoadSettings();
+  if (startup_delay) {
+    printf("Waiting for statup delay...\n");
+    for (int seconds = 0; seconds < startup_delay && !must_exit; seconds++)
+      Sleep(1000);
+  }
+  int thread_count = launch_processes.GetCount();
+  if (thread_count) {
+    printf("Spawning %d processes...\n", thread_count);
+    for (int i = 0; i < thread_count; i++) {
+      HANDLE thread = CreateThread(NULL, 0, LaunchProcess, (LPVOID)i, 0, NULL);
+      CloseHandle(thread);
+    }
+  }
   printf("Monitoring adb for hangs...\n");
   SetAdbAffinity();
   while (!must_exit) {
