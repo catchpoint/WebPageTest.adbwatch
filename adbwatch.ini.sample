@@ -1,0 +1,12 @@
+[General]
+Startup Delay=60
+
+;
+; Each line is a separate device in the format of
+; <label>=<command-line>
+; Where label is the string that will be displayed as the
+; title of the cmd window.
+;
+[Launch]
+Nexus5_1=cmd /C "C:\webpagetest\mobile\wptdriver.bat -m info --serverUrl 127.0.0.1 --maxtemp 36 --checknet yes --apiKey location_key_xxxx --name Nexus5_1 --location Test_Android --browser android:009906dc2a1651f7"
+Nexus5_2=cmd /C "C:\webpagetest\mobile\wptdriver.bat -m info --serverUrl 127.0.0.1 --maxtemp 36 --checknet yes --apiKey location_key_xxxx --name Nexus5_2 --location Test_Android --browser android:009906dc2a1651f7"
