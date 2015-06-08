@@ -11,6 +11,7 @@
 #include <atlcoll.h>
 #include <Shlwapi.h>
 
+int alive_ttl_ms = 30000;
 int startup_delay = 60;
 bool must_exit = false;
 bool IsAdbHung();
@@ -44,6 +45,34 @@ void LoadSettings() {
                                        startup_delay, ini_file);
 }
 
+bool IsAlive(LPWSTR label) {
+  bool is_alive = true;
+  wchar_t alive_file[MAX_PATH];
+  GetCurrentDirectory(MAX_PATH, alive_file);
+  lstrcat(alive_file, L"\\");
+  lstrcat(alive_file, label);
+  lstrcat(alive_file, L".alive");
+  WIN32_FIND_DATA fd;
+  HANDLE hFind = FindFirstFile(alive_file, &fd);
+  if (hFind != INVALID_HANDLE_VALUE) {
+    FindClose(hFind);
+    SYSTEMTIME system_time;
+    FILETIME now_file_time;
+    GetSystemTime(&system_time);
+    if (SystemTimeToFileTime(&system_time, &now_file_time)) {
+      ULARGE_INTEGER now, last_alive;
+      now.HighPart = now_file_time.dwHighDateTime;
+      now.LowPart = now_file_time.dwLowDateTime;
+      last_alive.HighPart = fd.ftLastWriteTime.dwHighDateTime;
+      last_alive.LowPart = fd.ftLastWriteTime.dwLowDateTime;
+      int elapsed_ms = (int)((now.QuadPart - last_alive.QuadPart) / (ULONGLONG)10000);
+      if (elapsed_ms > alive_ttl_ms)
+        is_alive = false;
+    }
+  }
+  return is_alive;
+}
+
 void LaunchAndWait(LPWSTR command_line, LPWSTR label) {
   PROCESS_INFORMATION pi;
   STARTUPINFO si;
@@ -58,7 +87,15 @@ void LaunchAndWait(LPWSTR command_line, LPWSTR label) {
     if (pi.hThread)
       CloseHandle(pi.hThread);
     if (pi.hProcess) {
-      WaitForSingleObject(pi.hProcess, INFINITE);
+      bool died = false;
+      while (!died) {
+        if (WaitForSingleObject(pi.hProcess, alive_ttl_ms) == WAIT_OBJECT_0) {
+          died = true;
+        } else if (label && lstrlen(label) && !IsAlive(label)) {
+          died = true;
+          TerminateProcess(pi.hProcess, 0);
+        }
+      }
       CloseHandle(pi.hProcess);
     }
   }
@@ -85,7 +122,7 @@ DWORD WINAPI LaunchProcess(LPVOID param) {
       if (!must_exit) {
         SYSTEMTIME t;
         GetLocalTime(&t);
-        wprintf(L"%d/%d/%d %d:%02d:%02d - %s exited, restarting...\n",
+        wprintf(L"%d/%d/%d %d:%02d:%02d - %s died, restarting...\n",
             t.wMonth, t.wDay, t.wYear, t.wHour, t.wMinute, t.wSecond, label);
       }
     }
