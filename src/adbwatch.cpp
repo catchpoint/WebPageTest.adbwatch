@@ -11,7 +11,7 @@
 #include <atlcoll.h>
 #include <Shlwapi.h>
 
-int alive_ttl_ms = 30000;
+int alive_ttl_ms = 1800000;
 int startup_delay = 60;
 bool must_exit = false;
 bool IsAdbHung();
